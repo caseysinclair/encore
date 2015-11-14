@@ -44,6 +44,16 @@
 /* 0 */
 /***/ function(module, exports, __webpack_require__) {
 
+	'use strict';
+
+	var Encore = __webpack_require__(1);
+
+	module.exports = Encore;
+
+/***/ },
+/* 1 */
+/***/ function(module, exports, __webpack_require__) {
+
 	/**
 	 * ENCORE is a JavaScript helper library for the Web Audio API
 	 * v.0.1
@@ -52,15 +62,15 @@
 	 * Released under the MIT license
 	 */
 
+	// Imports
+	'use strict';
+
+	var _ = __webpack_require__(2);
+	var dev = __webpack_require__(3);
+
 	'use strict';
 
 	(function () {
-
-	  var Encore = {};
-
-	  // Import underscore
-	  var _ = __webpack_require__(1);
-	  var dev = __webpack_require__(2);
 
 	  // Initlize WebAudio API
 	  var AudioContext = window.AudioContext || window.webkitAudioContext,
@@ -68,7 +78,8 @@
 
 	  // Channels object
 	  var channels = [];
-	  var soundManger = [];
+	  var soundManager = [];
+	  var bufferGlobal;
 
 	  // Effect Units
 	  var volume = context.createGain(),
@@ -80,125 +91,97 @@
 	  // Audio Units
 	  var audioBuffer = context.createBufferSource();
 
-	  // --- Encore Mixer ---
+	  var Encore = {
+	    // creates new audio channel
+	    _addChannel: function _addChannel() {
+	      var ch = context;
+	      ch.mixer = { volume: volume, panner: panner, eq: eq };
+	      channels.push(ch); // push object
 
-	  Encore.addChannelStrip = function () {
-	    var ch = context;
-	    ch.mixer = {};
-	    ch.mixer.volume = volume;
-	    ch.mixer.panner = panner;
-	    ch.mixer.eq = eq;
+	      return ch;
+	    },
 
-	    channels.push(ch); // push object
+	    // connect output of each mixer components (volume, pan, eq)
+	    _initialiseMixer: function _initialiseMixer(channel) {
+	      var source = channel.source;
+	      var mixer = channel.mixer;
 
-	    // create reference to this channel strip
-	    ch.reference = {
-	      channelIndex: _.indexOf(channels, ch), // important reference to self.
-	      channelId: _.uniqueId('ch_') // attach id
-	    };
+	      if (channel && source) {
+	        _.each(mixer, function (v) {
+	          return source.connect(v);
+	        });
+	      }
+	    },
 
-	    // push reference
-	    channels.push(ch.reference);
+	    // load audio sample into the channels source buffer
+	    _loadChannel: function _loadChannel(channel, sourceFile) {
+	      var req = new XMLHttpRequest();
+	      req.open('GET', sourceFile, true);
+	      req.responseType = 'arraybuffer';
 
-	    dev.info(ch);
-	    return ch;
-	  };
+	      req.onload = function () {
+	        context.decodeAudioData(req.response, function (buffer) {
+	          var uid = _.uniqueId('soundInx');
+	          buffer.meta = { id: uid, location: sourceFile };
 
-	  /** Set the buffer to the channel source.buffer
-	   *
-	   * @param {object} channel
-	   * @param {string} buffer
-	   */
-	  Encore.connectAudioSource = function (channel, buffer) {
-	    channel.source = audioBuffer;
-	    channel.source.buffer = buffer;
-	    channel.source.connect(channel.destination);
+	          soundManager.push(buffer);
 
-	    Encore.connectAudioUnits(channel);
-	  };
+	          return soundManager[soundManager.length - 1];
+	        });
+	      };
 
-	  /**
-	   * Connect audio nodes to master out
-	   * @param {object} channel
-	   */
-	  Encore.connectAudioUnits = function (channel) {
-	    var source = channel.source;
-	    var mixer = channel.mixer;
-	    if (channel && source) {
-	      _.each(mixer, function (v) {
-	        return source.connect(v);
-	      });
+	      req.send();
+	    },
+
+	    // connect the channel audio source to master output (speakers)
+	    _connectChannel: function _connectChannel(channel, buffer) {
+	      channel.source = audioBuffer;
+	      channel.source.buffer = buffer;
+	      channel.source.connect(channel.destination);
+	      channel.source.start(0);
 	    }
-
-	    Encore.playChannel(channel, 0);
 	  };
 
-	  /**
-	   * Decode audio to channel buffer
-	   * TODO: Break this out using q promise
-	   * @param {object} channel
-	   * @param {string} sourceFile
-	   */
-	  Encore.loadSound = function (channel, sourceFile) {
-	    var req = new XMLHttpRequest();
-	    req.open('GET', sourceFile, true);
-	    req.responseType = 'arraybuffer';
-
-	    req.onload = function () {
-	      context.decodeAudioData(req.response, function (buffer) {
-	        Encore.connectAudioSource(channel, buffer);
-	      });
-	    };
-	    req.send();
+	  /** Encore Sound */
+	  var Sound = Encore.Sound = function (sample) {
+	    var sampleLoaded = false;
+	    this.sample = sample;
+	    this.sound = '';
+	    this.channel = null;
+	    this.tempBuffer = '';
+	    this.initialise.apply(this);
 	  };
 
-	  /**
-	   * Hit play on a channel
-	   * @param channel
-	   * @param playPosition
-	   * @param loop
-	   */
-	  Encore.playChannel = function (channel, playPosition, loop) {
-	    var source = channel.source;
+	  _.extend(Sound.prototype, {
+	    initialise: function initialise() {
+	      this.channel = Encore._addChannel();
+	      Encore._initialiseMixer(this.channel);
+	      Encore._loadChannel(this.channel, this.sample);
+	    },
 
-	    if (loop && loop === true) {
-	      source.loop = true;
+	    play: function play() {
+	      var sound = this.sound = context.createBufferSource();
+	      sound.buffer = soundManager[0];
+
+	      this.sound.connect(context.destination);
+	      this.sound.start();
+	    },
+
+	    stop: function stop() {
+	      this.sound.stop();
+	    },
+
+	    loop: function loop(_loop) {
+	      _loop === true ? this.loop = true : false;
 	    }
+	  });
 
-	    source.start(playPosition);
-	  };
-
-	  // create volume (slider)
-	  Encore.patchVolume = function (channel) {
-	    return channel.volume = volume;
-	  };
-
-	  // create stereo pan control
-	  Encore.patchPanner = function (channel) {
-	    return channel.panner = panner;
-	  };
-
-	  Encore.patchEq = function (channel) {
-	    return channel.eq = eq;
-	  };
-
-	  // create effects unit (delay)
-	  Encore.patchDelay = function (channel) {
-	    return channel.delay = delayUnit;
-	  };
-
-	  // create effects unit (reverb)
-	  Encore.patchReverb = function (channel) {
-	    return channel.reverb = reverbUnit;
-	  };
-
-	  // EXAMPLE
-	  var kick = Encore.addChannelStrip(); // Initialize new channel
-	  Encore.loadSound(kick, 'samples/kick3.wav'); // Load in audio sample
+	  var root = window;
+	  root.Encore = Encore;
 	})();
 
 /***/ },
-/* 1 */
+/* 2 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;//     Underscore.js 1.8.3
@@ -1768,7 +1751,7 @@
 	}).call(undefined);
 
 /***/ },
-/* 2 */
+/* 3 */
 /***/ function(module, exports) {
 
 	"use strict";

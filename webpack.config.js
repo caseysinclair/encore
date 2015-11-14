@@ -1,5 +1,8 @@
+var devServer = require('webpack-dev-server');
+
+
 module.exports = {
-  entry: './mixer.js',
+  entry: './index.js',
   output: {
     path: './',
     filename: 'encore.js'
