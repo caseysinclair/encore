@@ -4,7 +4,7 @@ var devServer = require('webpack-dev-server');
 module.exports = {
   entry: './index.js',
   output: {
-    path: './',
+    path: './dist',
     filename: 'encore.js'
   },
   module: {

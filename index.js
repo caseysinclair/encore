@@ -1,3 +1,3 @@
-var Encore = require('./mixer.js');
+var Encore = require('./encore.js');
 
 module.exports = Encore;
